@@ -1,0 +1,35 @@
+# 指定文件格式版本
+version: '3'  
+
+# 创建macvlan
+networks:
+  dockervlan:
+    name: dockervlan
+    driver: macvlan
+    driver_opts:
+      #填写实际物理网卡
+      parent: kvmbr0
+    ipam:
+      config:
+        - subnet: "192.168.124.0/24"
+          ip_range: "192.168.124.160/27"
+          gateway: "192.168.124.50"
+
+# 定义服务
+services:  
+  portainer:
+    image: portainer/portainer-ce:2.24.1-linux-amd64-alpine
+    container_name: portainer-test
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /yourpath/data:/data
+    networks:
+      dockervlan:
+        #地址要在上面ip_range范围中
+        ipv4_address: 192.168.124.164
+
+
+
+
+

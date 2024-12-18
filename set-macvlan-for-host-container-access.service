@@ -1,0 +1,26 @@
+[Unit]
+Description=Configure a macvlan Interface to Enable Host and Docker Container Communication
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=NIC_NAME=kvmbr0
+Environment=MACVLAN_INTERFACE_NAME=nic-macvlan
+Environment=IP_ADDRESS=192.168.124.190/27
+ExecStart=/bin/bash -c '\
+    # 打开物理网卡混杂模式\
+    /sbin/ip link set ${NIC_NAME} promisc on;\
+    # 创建macvlan网络接口\
+    /sbin/ip link add ${MACVLAN_INTERFACE_NAME} link ${NIC_NAME} type macvlan mode bridge;\
+    # 为macvlan网络接口设置ip子网地址\
+    # 这里设置的子网范围是192.168.124.160/27(网络地址192.168.124.60,广播地址:192.168.124.191,可用地址范围:192.168.124.61~192.168.124.190)\
+    # 为创建的macvlan接口赋予IP,此处使用上述规划的子网中最后一个可用IP:192.168.124.190\
+    /sbin/ip addr add ${IP_ADDRESS} dev ${MACVLAN_INTERFACE_NAME};\
+    # 开启接口\
+    /sbin/ip link set ${MACVLAN_INTERFACE_NAME} up;\
+'
+
+[Install]
+WantedBy=multi-user.target
