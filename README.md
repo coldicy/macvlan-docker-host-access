@@ -46,9 +46,9 @@ WantedBy=multi-user.target
 
 **NIC_NAME** :  修改成你实际物理网卡的名称(如eth0,kvmbr0等)
 
-**MACVLAN_INTERFACE_NAME **: 最终宿主机上创建出来的macvlan接口的名字,这个名字可随意填写
+**MACVLAN_INTERFACE_NAME**: 最终宿主机上创建出来的macvlan接口的名字,这个名字可随意填写
 
-**IP_ADDRESS **: 你希望哪些ip地址段流量通过该接口，这里最好与你规划给docker的macvlan网络ip地址段相同，毕竟新创建的macvlan接口就是为了负责与docker macvlan通信的.如果不清楚建议不修改，此处模板中规划的子网为 `192.168.124.60/27` (网络地址192.168.124.60，广播地址:192.168.124.191，可用地址范围:192.168.124.61~192.168.124.190),，此处填写192.168.124.190/27意为将子网中的192.168.124.190分配给macvlan接口, 同时划分子网范围
+**IP_ADDRESS**: 你希望哪些ip地址段流量通过该接口，这里最好与你规划给docker的macvlan网络ip地址段相同，毕竟新创建的macvlan接口就是为了负责与docker macvlan通信的.如果不清楚建议不修改，此处模板中规划的子网为 `192.168.124.60/27` (网络地址192.168.124.60，广播地址:192.168.124.191，可用地址范围:192.168.124.61~192.168.124.190),，此处填写192.168.124.190/27意为将子网中的192.168.124.190分配给macvlan接口, 同时划分子网范围
 
 #### 使用systemd实现开机启动
 设置可执行权限
@@ -77,16 +77,35 @@ sudo systemctl start set-macvlan-for-host-container-access.service
 
 #### 查看宿主机上macvlan接口是否创建成功
 ```bash
-ip link
+$ ip link
+......
+5: kvmbr0: <BROADCAST,MULTICAST,PROMISC,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 24:77:ad:2c:86:a0 brd ff:ff:ff:ff:ff:ff
+......
+8: nic-macvlan@kvmbr0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1499 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 7e:7a:b6:5d:69:b3 brd ff:ff:ff:ff:ff:ff
+......
 ```
 
-在输出中能看到名为nic-macvlan(这个是自己设置的,如果跟我一样才是这个名字)的网卡即表示成功
+使用 `ip link` 命令查看网络接口，在输出中能看到名为nic-macvlan(这个是自己设置的,如果跟我一样才是这个名字)的网卡即表示创建成功
 
 ```bash
-ip route
+$ ip route
+......
+192.168.124.0/24 dev kvmbr0 proto kernel scope link src 192.168.124.30 metric 100 
+192.168.124.160/27 dev nic-macvlan proto kernel scope link src 192.168.124.190
+......
 ```
+使用 `ip route` 命令查看所有路由，示例中可以看到宿主机创建macvlan网卡后，目的网络位于192.168.124.160/27范围时，数据包将通过`nic-macvlan`网卡进行处理
 
+
+补充解释一下，ip route输出中可以看到:
+父网卡 `kvmbr0` 可以处理目标地址为192.168.124.0/24的数据包
+通过父网卡创建的macvlan虚拟网卡 `nic-macvlan` 可以处理目标地址为192.168.124.160/27的数据包
+当我们访问192.168.124.170时，从路由表可知kvmbr0和nic-macvlan都可以处理，但根据路由的最长前缀匹配原则，192.168.124.160/27的网络掩码长度为27，比192.168.124.0/24的网络掩码长度24更长，从而选择nic-macvlan网卡进行数据包发送
 
 
 ### 其他
+提供了本文所示的脚本及对应的docker-compose供参考
+
 
