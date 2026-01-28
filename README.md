@@ -108,5 +108,21 @@ $ ip route
 
 ### 其他
 提供了本文所示的脚本及对应的docker-compose供参考
+#### 可能存在的问题
+父接口（kvmbr0）状态变化： macvlan 依赖于 kvmbr0。如果 kvmbr0 因为 DHCP 续租、网络闪断或 NetworkManager 重新扫描而导致状态瞬间变为 DOWN，内核会立即清除所有依赖于该接口的路由和子接口。一旦发生此种现象宿主机将不再能通过创建的子接口与macvlan模式下的docker容器进行通信（因为路由不在了）
+以下方式能解决由于路由消失导致此方法失效的问题
+
+
+**查看当前路由表中是否还存在 nic-macvlan 的路由信息**
+```bash
+ip route | grep nic-macvlan
+```
+如果没有该网卡的输出，证明此路由已被清除。
+
+
+**手动添加路由**
+```bash
+sudo /sbin/ip route add 192.168.124.160/27 dev nic-macvlan
+```
 
 
