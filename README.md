@@ -23,7 +23,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-Environment=NIC_NAME=kvmbr0
+Environment=NIC_NAME=eth0
 Environment=MACVLAN_INTERFACE_NAME=nic-macvlan
 Environment=IP_ADDRESS=192.168.124.190/27
 ExecStart=/bin/bash -c '\
@@ -80,10 +80,10 @@ sudo systemctl start set-macvlan-for-host-container-access.service
 ```bash
 $ ip link
 ......
-5: kvmbr0: <BROADCAST,MULTICAST,PROMISC,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+5: eth0: <BROADCAST,MULTICAST,PROMISC,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
     link/ether 24:77:ad:2c:86:a0 brd ff:ff:ff:ff:ff:ff
 ......
-8: nic-macvlan@kvmbr0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1499 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+8: nic-macvlan@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1499 qdisc noqueue state UP mode DEFAULT group default qlen 1000
     link/ether 7e:7a:b6:5d:69:b3 brd ff:ff:ff:ff:ff:ff
 ......
 ```
@@ -93,7 +93,7 @@ $ ip link
 ```bash
 $ ip route
 ......
-192.168.124.0/24 dev kvmbr0 proto kernel scope link src 192.168.124.30 metric 100 
+192.168.124.0/24 dev eth0 proto kernel scope link src 192.168.124.30 metric 100 
 192.168.124.160/27 dev nic-macvlan proto kernel scope link src 192.168.124.190
 ......
 ```
@@ -101,15 +101,15 @@ $ ip route
 
 
 补充解释一下，ip route输出中可以看到:
-父网卡 `kvmbr0` 可以处理目标地址为192.168.124.0/24的数据包
+父网卡 `eth0` 可以处理目标地址为192.168.124.0/24的数据包
 通过父网卡创建的macvlan虚拟网卡 `nic-macvlan` 可以处理目标地址为192.168.124.160/27的数据包
-当我们访问192.168.124.170时，从路由表可知kvmbr0和nic-macvlan都可以处理，但根据路由的最长前缀匹配原则，192.168.124.160/27的网络掩码长度为27，比192.168.124.0/24的网络掩码长度24更长，从而选择nic-macvlan网卡进行数据包发送
+当我们访问192.168.124.170时，从路由表可知eth0和nic-macvlan都可以处理，但根据路由的最长前缀匹配原则，192.168.124.160/27的网络掩码长度为27，比192.168.124.0/24的网络掩码长度24更长，从而选择nic-macvlan网卡进行数据包发送
 
 
 ### 其他
 提供了本文所示的脚本及对应的docker-compose供参考
 #### 可能存在的问题
-父接口（kvmbr0）状态变化： macvlan 依赖于 kvmbr0。如果 kvmbr0 因为 DHCP 续租、网络闪断或 NetworkManager 重新扫描而导致状态瞬间变为 DOWN，内核会立即清除所有依赖于该接口的路由和子接口。一旦发生此种现象宿主机将不再能通过创建的子接口与macvlan模式下的docker容器进行通信（因为路由不在了）
+父接口（eth0）状态变化： macvlan 依赖于 eth0。如果 eth0 因为 DHCP 续租、网络闪断或 NetworkManager 重新扫描而导致状态瞬间变为 DOWN，内核会立即清除所有依赖于该接口的路由和子接口。一旦发生此种现象宿主机将不再能通过创建的子接口与macvlan模式下的docker容器进行通信（因为路由不在了）
 以下方式能解决由于路由消失导致此方法失效的问题
 
 
@@ -119,10 +119,39 @@ ip route | grep nic-macvlan
 ```
 如果没有该网卡的输出，证明此路由已被清除。
 
-
-**手动添加路由**
+#### 解决方案
+##### 方案一、手动添加路由（临时解决）
 ```bash
 sudo /sbin/ip route add 192.168.124.160/27 dev nic-macvlan
 ```
+##### 方案二、借助 NetworkManager 的 Dispatcher 机制
+###### 创建监听脚本
+```bash
+sudo vim /etc/NetworkManager/dispatcher.d/fix-nic-macvlan-route
+```
+粘贴以下逻辑（它会在 eth0 变 UP 的瞬间强行恢复路由）：
 
+```bash
+#!/bin/bash
+
+# 参数说明：$1 是接口名（eth0）, $2 是状态（up/down）
+IFACE=$1
+ACTION=$2
+
+if [ "$IFACE" = "eth0" ] && [ "$ACTION" = "up" ]; then
+    # 延迟 2 秒确保协议栈准备好
+    sleep 2
+    # 补回路由
+    /sbin/ip route add 192.168.124.160/27 dev nic-macvlan 2>/dev/null
+fi
+```
+###### 赋予执行权限
+```bash
+sudo chmod +x /etc/NetworkManager/dispatcher.d/fix-nic-macvlan-route
+```
+###### 手动执行脚本
+本次执行只是为了手动触发脚本恢复路由，因为脚本触发条件是父网卡状态由DOWN恢复成UP的时刻， 此时肯定不满足脚本条件，所以要手动执行一次脚本，后续满足条件脚本会自动执行
+```bash
+sudo /etc/NetworkManager/dispatcher.d/fix-nic-macvlan-route eth0 up
+```
 
