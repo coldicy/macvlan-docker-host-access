@@ -124,7 +124,7 @@ ip route | grep nic-macvlan
 ```bash
 sudo /sbin/ip route add 192.168.124.160/27 dev nic-macvlan
 ```
-##### 方案二、借助 NetworkManager 的 Dispatcher 机制
+##### ~~方案二、借助 NetworkManager 的 Dispatcher 机制~~
 ###### 创建监听脚本
 ```bash
 sudo vim /etc/NetworkManager/dispatcher.d/fix-nic-macvlan-route
@@ -154,4 +154,74 @@ sudo chmod +x /etc/NetworkManager/dispatcher.d/fix-nic-macvlan-route
 ```bash
 sudo /etc/NetworkManager/dispatcher.d/fix-nic-macvlan-route eth0 up
 ```
+##### 方案三、创建守护脚本监听路由，消失后自动修补
+###### 创建守护脚本（名字随意）
+```bash
+cd /etc/systemd/system
+sudo vim fix-macvlan-route.service
+```
+###### 脚本填入以下内容（Environment根据自己情况填写）
+```bash
+[Unit]
+Description=Service for monitoring and restoring missing Macvlan routes.
+After=set-macvlan-for-host-container-access.service
 
+[Service]
+Type=simple
+Environment=MACVLAN_IF=nic-macvlan
+Environment=ROUTE_NET=192.168.124.160/27
+ExecStart=/bin/bash -c '\
+    echo "Macvlan watchdog started..."; \
+    while true; do \
+        # 1. 检查网卡是否存在（静默检查，报错才显示）
+        if /sbin/ip link show "${MACVLAN_IF}" >/dev/null; then \
+            \
+            # 2. 检查路由是否存在（通过 grep 判断，不输出内容）
+            if ! /sbin/ip route show dev "${MACVLAN_IF}" | /bin/grep -q "${ROUTE_NET}"; then \
+                \
+                # 3. 只有路由丢失时才尝试添加，并打印一条清晰的日志记录
+                echo "Route missing! Attempting to restore ${ROUTE_NET}..."; \
+                if /sbin/ip route add "${ROUTE_NET}" dev "${MACVLAN_IF}" 2>&1; then \
+                    echo "Route successfully restored."; \
+                else \
+                    echo "Failed to restore route! See error above."; \
+                fi; \
+            fi; \
+        fi; \
+        sleep 5; \
+    done'
+# 故障自愈：如果 Bash 进程意外停止，自动重启
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+###### 使用systemd实现开机启动
+设置可执行权限
+
+```bash
+sudo chmod a+x fix-macvlan-route.service
+```
+
+重新加载systemd服务
+
+```bash
+sudo systemctl daemon-reload
+```
+
+启用服务使其开机自启
+
+```bash
+sudo systemctl enable fix-macvlan-route.service
+```
+
+立即启用脚本
+
+```bash
+sudo systemctl start fix-macvlan-route.service
+```
+查看该脚本日志
+```bash
+sudo journalctl -u fix-macvlan-route.service -f
+```
