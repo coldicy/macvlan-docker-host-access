@@ -124,7 +124,10 @@ ip route | grep nic-macvlan
 ```bash
 sudo /sbin/ip route add 192.168.124.160/27 dev nic-macvlan
 ```
-##### ~~方案二、借助 NetworkManager 的 Dispatcher 机制~~
+
+<del>
+    
+##### 方案二、借助 NetworkManager 的 Dispatcher 机制
 ###### 创建监听脚本
 ```bash
 sudo vim /etc/NetworkManager/dispatcher.d/fix-nic-macvlan-route
@@ -154,6 +157,8 @@ sudo chmod +x /etc/NetworkManager/dispatcher.d/fix-nic-macvlan-route
 ```bash
 sudo /etc/NetworkManager/dispatcher.d/fix-nic-macvlan-route eth0 up
 ```
+</del>
+
 ##### 方案三、创建守护脚本监听路由，消失后自动修补
 ###### 创建守护脚本（名字随意）
 ```bash
